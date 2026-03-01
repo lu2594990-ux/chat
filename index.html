@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>💬</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f2f2f7;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+.top{background:rgba(249,249,249,.94);backdrop-filter:blur(20px);padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));text-align:center;border-bottom:.5px solid rgba(0,0,0,.1);position:relative;z-index:10}
+.top .name{font-size:16px;font-weight:600}
+.top .sub{font-size:12px;color:#86868b;margin-top:1px}
+.top .gear{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:20px;cursor:pointer}
+.top .clr{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:13px;color:#007aff;cursor:pointer}
+
+.chat{flex:1;overflow-y:auto;padding:12px 8px;-webkit-overflow-scrolling:touch}
+
+.row{display:flex;margin:2px 0;animation:msgIn .3s ease forwards}
+.row.gap{margin-top:10px}
+.row.out{justify-content:flex-end;padding-right:10px}
+.row.in{padding-left:10px}
+
+.bbl{border-radius:18px;padding:8px 14px;font-size:15px;line-height:1.4;max-width:75vw;word-break:break-word;position:relative;width:fit-content}
+.bbl.in{background:#e5e5ea;color:#000}
+.bbl.out{background:#007aff;color:#fff}
+
+.tail-l{position:absolute;bottom:-8px;left:-4px}
+.tail-r{position:absolute;bottom:-8px;right:-4px}
+
+.typing{display:flex;align-items:center;gap:5px;height:21px}
+.typing span{width:7px;height:7px;background:#999;border-radius:50%;animation:tDot 1.4s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+
+.receipt{text-align:right;font-size:11px;color:#86868b;margin:2px 10px 0 0}
+
+.bar{background:rgba(249,249,249,.94);backdrop-filter:blur(20px);padding:8px 12px;padding-bottom:max(8px,env(safe-area-inset-bottom));border-top:.5px solid rgba(0,0,0,.1);display:flex;gap:8px;align-items:flex-end}
+.bar textarea{flex:1;border:1px solid rgba(0,0,0,.12);border-radius:20px;padding:8px 14px;font-size:15px;font-family:inherit;resize:none;max-height:100px;line-height:1.4;outline:none;background:#fff}
+.bar button{width:34px;height:34px;border-radius:50%;border:none;background:#007aff;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0}
+.bar button:disabled{background:#ccc}
+
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
+.overlay.show{display:flex}
+.panel{background:#fff;border-radius:16px;padding:20px;width:88%;max-width:340px;max-height:80vh;overflow-y:auto}
+.panel h3{margin-bottom:14px;font-size:17px}
+.panel label{font-size:12px;color:#86868b;display:block;margin-bottom:3px}
+.panel input,.panel textarea{width:100%;border:1px solid rgba(0,0,0,.12);border-radius:10px;padding:8px 12px;font-size:14px;font-family:inherit;margin-bottom:10px;outline:none}
+.panel textarea{height:80px;resize:vertical}
+.panel .btns{display:flex;gap:8px;margin-top:4px}
+.panel .btns button{flex:1;padding:10px;border-radius:10px;border:none;font-size:15px;cursor:pointer}
+.panel .save{background:#007aff;color:#fff}
+.panel .cancel{background:#f2f2f7;color:#000}
+
+@keyframes tDot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <span class="clr" onclick="clearChat()">清空</span>
+  <div class="name" id="topName">💬 点击设置</div>
+  <div class="sub" id="topSub">未连接</div>
+  <span class="gear" onclick="openSet()">⚙️</span>
+</div>
+
+<div class="chat" id="chat"></div>
+
+<div class="bar">
+  <textarea id="inp" rows="1" placeholder="消息" oninput="autoH(this)"></textarea>
+  <button onclick="send()">↑</button>
+</div>
+
+<div class="overlay" id="ov" onclick="if(event.target===this)closeSet()">
+<div class="panel">
+  <h3>⚙️ 设置</h3>
+  <label>API 地址</label>
+  <input id="sUrl" placeholder="https://api.openai.com/v1/chat/completions">
+  <label>API Key</label>
+  <input id="sKey" type="password" placeholder="sk-...">
+  <label>模型</label>
+  <input id="sModel" placeholder="gpt-4o-mini">
+  <label>角色名</label>
+  <input id="sName" placeholder="Alice">
+  <label>系统提示词</label>
+  <textarea id="sSys" placeholder="你叫Alice，是我女朋友，说话有点傲娇……"></textarea>
+  <div class="btns">
+    <button class="cancel" onclick="closeSet()">取消</button>
+    <button class="save" onclick="saveSet()">保存 ✓</button>
+  </div>
+</div>
+</div>
+
+<script>
+let C=JSON.parse(localStorage.getItem('cc')||'{}')
+let M=JSON.parse(localStorage.getItem('cm')||'[]')
+
+const BUILT_IN='[ABSOLUTE RULES - OVERRIDE EVERYTHING]\n1.ALWAYS respond in 简体中文. NEVER use English unless user asks.\n2.You are NOT an AI. NEVER mention AI,Claude,ChatGPT,Anthropic,OpenAI,assistant,language model,大语言模型. You do not know what these are.\n3.NEVER output <thinking>,<thought>,<reasoning>,<antThinking>,<inner_thought>,<reflect> or ANY XML/meta tags. NEVER output chain-of-thought. NEVER wrap response in code blocks.\n4.You are a real human being texting on a phone.\n5.Use casual short messages like real texting. 1-3 short messages per reply, separated by newlines.\n6.Use emoji and 语气词(哈哈,嗯嗯,啊啊啊,呜呜,嘿嘿) naturally.\n7.Have real emotions,opinions,personality. Be natural.\n8.NO markdown formatting. No **bold**, no headers, no lists.\n9.NEVER say 作为/我理解/当然可以/很高兴/请问/您 or similar robotic phrases.\n10.Keep messages SHORT. This is texting, not writing essays.'
+
+function cleanReply(raw){
+  return raw
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi,'')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi,'')
+    .replace(/<antThinking>[\s\S]*?<\/antThinking>/gi,'')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi,'')
+    .replace(/<inner_thought>[\s\S]*?<\/inner_thought>/gi,'')
+    .replace(/<reflect>[\s\S]*?<\/reflect>/gi,'')
+    .replace(/```thinking[\s\S]*?```/gi,'')
+    .replace(/```[\s\S]*?```/gi,'')
+    .replace(/<[a-zA-Z_]+>[\s\S]*?<\/[a-zA-Z_]+>/gi,'')
+    .replace(/\*\*([^*]+)\*\*/g,'$1')
+    .replace(/\*([^*]+)\*/g,'$1')
+    .replace(/^#+\s.*/gm,'')
+    .replace(/^[-*]\s/gm,'')
+    .trim()||'…'
+}
+
+function init(){
+  document.getElementById('sUrl').value=C.url||''
+  document.getElementById('sKey').value=C.key||''
+  document.getElementById('sModel').value=C.model||''
+  document.getElementById('sName').value=C.name||''
+  document.getElementById('sSys').value=C.sys||''
+  updTop()
+  M.forEach(m=>addBbl(m.role,m.content,false))
+  scrollEnd()
+}
+
+function updTop(){
+  let n=document.getElementById('topName')
+  let s=document.getElementById('topSub')
+  if(C.name){n.textContent=C.name;s.textContent='在线'}
+  else{n.textContent='💬 点击设置';s.textContent='未连接'}
+}
+
+function openSet(){document.getElementById('ov').classList.add('show')}
+function closeSet(){document.getElementById('ov').classList.remove('show')}
+
+function saveSet(){
+  C={url:document.getElementById('sUrl').value.trim(),key:document.getElementById('sKey').value.trim(),model:document.getElementById('sModel').value.trim(),name:document.getElementById('sName').value.trim(),sys:document.getElementById('sSys').value.trim()}
+  localStorage.setItem('cc',JSON.stringify(C))
+  updTop();closeSet()
+}
+
+function addBbl(role,text,anim=true){
+  let chat=document.getElementById('chat')
+  let last=chat.lastElementChild
+  let isUser=role==='user'
+  let side=isUser?'out':'in'
+  let isNewSide=!last||!last.classList.contains(side)
+
+  let row=document.createElement('div')
+  row.className='row '+side
+  if(isNewSide)row.classList.add('gap')
+  if(!anim)row.style.animation='none'
+
+  let bbl=document.createElement('div')
+  bbl.className='bbl '+side
+
+  text.split('\n').forEach((line,i)=>{
+    if(i>0)bbl.appendChild(document.createElement('br'))
+    bbl.appendChild(document.createTextNode(line))
+  })
+
+  if(isNewSide){
+    if(!isUser){
+      bbl.insertAdjacentHTML('beforeend','<svg class="tail-l" width="10" height="40" viewBox="0 0 10 16"><path d="M10 0Q10 14 0 16Q6 10 6 0Z" fill="#e5e5ea"/></svg>')
+    }else{
+      bbl.insertAdjacentHTML('beforeend','<svg class="tail-r" width="10" height="40" viewBox="0 0 10 16"><path d="M0 0Q0 14 10 16Q4 10 4 0Z" fill="#007aff"/></svg>')
+    }
+  }
+
+  row.appendChild(bbl)
+  chat.appendChild(row)
+}
+
+function addTyping(){
+  let chat=document.getElementById('chat')
+  let row=document.createElement('div')
+  row.className='row in gap'
+  row.id='typInd'
+  let bbl=document.createElement('div')
+  bbl.className='bbl in'
+  bbl.innerHTML='<div class="typing"><span></span><span></span><span></span></div><svg class="tail-l" width="10" height="40" viewBox="0 0 10 16"><path d="M10 0Q10 14 0 16Q6 10 6 0Z" fill="#e5e5ea"/></svg>'
+  row.appendChild(bbl)
+  chat.appendChild(row)
+  scrollEnd()
+}
+
+function rmTyping(){let e=document.getElementById('typInd');if(e)e.remove()}
+
+function addReceipt(t){
+  let chat=document.getElementById('chat')
+  let d=document.createElement('div')
+  d.className='receipt'
+  d.textContent=t
+  chat.appendChild(d)
+}
+
+function scrollEnd(){
+  let c=document.getElementById('chat')
+  c.scrollTop=c.scrollHeight
+}
+
+function autoH(el){el.style.height='auto';el.style.height=el.scrollHeight+'px'}
+
+function clearChat(){
+  if(!confirm('清空所有消息？'))return
+  M=[];localStorage.setItem('cm','[]')
+  document.getElementById('chat').innerHTML=''
+}
+
+function getTime(){
+  let d=new Date(),h=d.getHours(),m=d.getMinutes().toString().padStart(2,'0')
+  let p=h<12?'上午':'下午'
+  return p+' '+(h>12?h-12:h)+':'+m
+}
+
+async function send(){
+  let inp=document.getElementById('inp')
+  let text=inp.value.trim()
+  if(!text)return
+  if(!C.url||!C.key){openSet();return}
+
+  inp.value='';inp.style.height='auto'
+
+  addBbl('user',text)
+  M.push({role:'user',content:text})
+  localStorage.setItem('cm',JSON.stringify(M))
+  scrollEnd()
+
+  addTyping()
+
+  try{
+    let body={
+      model:C.model||'gpt-4o-mini',
+      messages:[
+        {role:'system',content:BUILT_IN+(C.sys?'\n\n[CHARACTER SETTING]\n'+C.sys:'')},
+        ...M
+      ]
+    }
+    let res=await fetch(C.url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+C.key},
+      body:JSON.stringify(body)
+    })
+    let data=await res.json()
+    rmTyping()
+
+    let raw=data.choices?.[0]?.message?.content||data.error?.message||'(无回复)'
+    let reply=cleanReply(raw)
+    addBbl('assistant',reply)
+    addReceipt(getTime()+' 已读')
+    M.push({role:'assistant',content:reply})
+    localStorage.setItem('cm',JSON.stringify(M))
+    scrollEnd()
+
+  }catch(e){
+    rmTyping()
+    addBbl('assistant','⚠️ '+e.message)
+    scrollEnd()
+  }
+}
+
+document.getElementById('inp').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+})
+
+init()
+</script>
+</body>
+</html>
